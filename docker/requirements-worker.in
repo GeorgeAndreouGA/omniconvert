@@ -1,0 +1,22 @@
+# Tables
+pandas
+pyarrow
+openpyxl
+python-calamine
+pyreadstat
+h5py
+scipy
+numpy
+# Settings files
+pyyaml
+tomli-w
+xmltodict
+defusedxml
+msgpack
+cbor2
+# Fonts
+fonttools
+brotli
+# Images and detection
+vtracer
+magika

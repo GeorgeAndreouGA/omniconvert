@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ImageMagick's own limits. This is a second layer: the policy has been bypassed before
+     (CVE-2026-56377), so the real confinement is the container and the job sandbox.
+     Don't add a "system" domain policy without a pattern here: ImageMagick then also treats it as
+     refusing to follow symlinks, and every tool opens its input through one. -->
+<policymap>
+  <!-- Resource limits. Past these, ImageMagick stops instead of exhausting the Raspberry Pi. -->
+  <policy domain="resource" name="memory" value="1GiB"/>
+  <policy domain="resource" name="map" value="2GiB"/>
+  <policy domain="resource" name="disk" value="8GiB"/>
+  <policy domain="resource" name="area" value="256MP"/>
+  <policy domain="resource" name="width" value="32KP"/>
+  <policy domain="resource" name="height" value="32KP"/>
+  <policy domain="resource" name="list-length" value="4096"/>
+  <policy domain="resource" name="time" value="1200"/>
+  <policy domain="cache" name="memory-map" value="anonymous"/>
+  <policy domain="cache" name="synchronize" value="true"/>
+
+  <!-- No fetching, and no scripts or generators that can read or write other files. -->
+  <policy domain="path" rights="none" pattern="@*"/>
+  <policy domain="path" rights="none" pattern="|*"/>
+  <policy domain="coder" rights="none" pattern="{MSL,MVG,URL,HTTP,HTTPS,FTP,EPHEMERAL,TEXT,LABEL,CAPTION,PANGO,INLINE,SHOW,WIN,X,SCREENSHOT,STEGANO,FILE}"/>
+  <policy domain="delegate" rights="none" pattern="{http,https,ftp,show,win,wmf,mpeg:decode,mpeg:encode}"/>
+  <policy domain="filter" rights="none" pattern="*"/>
+  <policy domain="module" rights="none" pattern="{MSL,MVG,URL,LABEL,CAPTION,TXT}"/>
+</policymap>

@@ -1,0 +1,166 @@
+
+
+name: omniconvert
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+
+  ipc: none
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  gateway:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    image: omniconvert-gateway:1.2.0
+    container_name: omniconvert-gateway
+    user: "10001:10001"
+    stop_grace_period: 10s
+    security_opt:
+      - no-new-privileges:true
+     
+      - seccomp=./docker/seccomp-gateway.json
+
+   
+    ports:
+      - "127.0.0.1:${HOST_PORT:?set it in .env - see .env.example}:8080"
+    networks:
+      - edge
+    sysctls:
+      net.ipv4.ping_group_range: "1 0"            
+      net.ipv4.ip_unprivileged_port_start: "1024" 
+
+    environment:
+      ALLOWED_IPS: "${ALLOWED_IPS:?set it in .env - see .env.example}"
+      API_TOKEN: "${API_TOKEN:-}"
+      BASE_PATH: "${BASE_PATH:-}"
+      TRUSTED_PROXIES: "${EDGE_GATEWAY:-172.31.90.1}"
+      MAX_UPLOAD_BYTES: "${MAX_UPLOAD_BYTES:-1073741824}"
+      MAX_OUTPUT_BYTES: "${MAX_OUTPUT_BYTES:-1610612736}"
+      JOB_TIMEOUT_SECONDS: "${JOB_TIMEOUT_SECONDS:-1800}"
+      RETENTION_MINUTES: "${RETENTION_MINUTES:-10}"
+      MAX_QUEUE: "${MAX_QUEUE:-20}"
+      MAX_JOBS_PER_IP: "${MAX_JOBS_PER_IP:-10}"
+      RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-600}"
+
+    volumes:
+      - &socket
+        type: volume
+        source: socket
+        target: /run/omniconvert
+        volume:
+          nocopy: true
+
+    tmpfs:
+      - /jobs:rw,noexec,nosuid,nodev,size=${JOB_STORE_SIZE:-2g},mode=0700,uid=10001,gid=10001
+      
+      - /dev/mqueue:ro,noexec,nosuid,nodev,size=4k,mode=0500
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${GATEWAY_CPUS:-0.5}"
+          memory: ${GATEWAY_MEMORY:-2300M}
+          pids: ${GATEWAY_PIDS:-64}
+        reservations:
+          memory: 64M
+    memswap_limit: ${GATEWAY_MEMORY:-2300M}  
+    cpu_shares: 512
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+      core: 0                                
+
+    healthcheck:
+      test: ["CMD", "python", "-I", "/app/gateway/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  worker:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    image: omniconvert-worker:1.2.0
+    container_name: omniconvert-worker
+    user: "10002:10002"
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./docker/seccomp-worker.json
+
+  
+    network_mode: none
+
+    environment:
+      WORKER_THREADS: "${WORKER_THREADS:-3}"
+      JOB_TIMEOUT_SECONDS: "${JOB_TIMEOUT_SECONDS:-1800}"
+      MAX_OUTPUT_BYTES: "${MAX_OUTPUT_BYTES:-1610612736}"
+      WORKER_LANDLOCK: "${WORKER_LANDLOCK:-auto}"
+      LOG_CONVERTER_OUTPUT: "${LOG_CONVERTER_OUTPUT:-0}"
+
+  
+    volumes:
+      - <<: *socket
+        read_only: true
+  
+    tmpfs:
+      - /work:rw,noexec,nosuid,nodev,size=${WORKER_WORK_SIZE:-3g},mode=0700,uid=10002,gid=10002
+      - /tmp:rw,noexec,nosuid,nodev,size=${WORKER_TMP_SIZE:-256m},mode=0700,uid=10002,gid=10002
+      - /dev/mqueue:ro,noexec,nosuid,nodev,size=4k,mode=0500
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${WORKER_CPUS:-3.0}"
+          memory: ${WORKER_MEMORY:-4G}
+          pids: ${WORKER_PIDS:-512}
+        reservations:
+          memory: 256M
+    memswap_limit: ${WORKER_MEMORY:-4G}
+    cpu_shares: 256          
+    oom_score_adj: 500       
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+      core: 0
+
+    healthcheck:
+      test: ["CMD", "/opt/py/bin/python", "-I", "/app/worker/healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+networks:
+  edge:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+  
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.31.90.0/24}
+          gateway: ${EDGE_GATEWAY:-172.31.90.1}
+
+volumes:
+
+  socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=64k,nr_inodes=8,uid=10001,gid=10002,mode=2750,noexec,nosuid,nodev"
